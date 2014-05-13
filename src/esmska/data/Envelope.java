@@ -166,8 +166,8 @@ public class Envelope {
             }
             String messageId = SMS.generateID();
             // cut out the messages
-            for (int i=0;i<msgText.length();i+=limit) {
-                String cutText = msgText.substring(i,Math.min(i+limit,msgText.length()));
+            ArrayList<String> messages = cutOutMessages(msgText, limit);
+            for (String cutText : messages) {
                 SMS sms = new SMS(c.getNumber(), cutText, c.getGateway(), c.getName(), messageId);
                 list.add(sms);
             }
@@ -175,6 +175,91 @@ public class Envelope {
         logger.log(Level.FINE, "Envelope specified for {0} contact(s) generated {1} SMS(s)", 
                 new Object[]{contacts.size(), list.size()});
         return list;
+    }
+    
+    /**
+     * Take a full message text and cut it out into pieces depending on max SMS
+     * length limit. The pieces will be split by word boundaries, unless it
+     * would take away more than 10% of the text - in that case it will be split
+     * by characters (splitting the word).
+     *
+     * @param msgText full message text
+     * @param limit max SMS length limit
+     * @return pieces of msgText, sequence of pieces corresponds to the order of
+     * pieces in the msgText
+     */
+    private ArrayList<String> cutOutMessages(String msgText, int limit) {
+        ArrayList<String> list = new ArrayList<String>();
+
+        //cutting msgText into sms's
+        int currentLengthOfSMS = msgText.length(); //initial length of sms
+        double deviation = 0.1; //deviation 10% from limit
+        for (int i = 0; i < msgText.length(); i += currentLengthOfSMS) {
+            int indexOfCut = findIndexOfCut(msgText, i, limit, deviation);
+
+            String cutText = msgText.substring(i, indexOfCut);
+            currentLengthOfSMS = cutText.length(); //lenght of cutText
+
+            if (currentLengthOfSMS <= 0) {
+                throw new IllegalStateException("Current lenght of message is <= 0, loop is infinite!");
+            }
+
+            //add cutText into list
+            list.add(cutText);
+        }
+
+        return list;
+    }
+
+    /**
+     * From beginnig index start(which is inclusive) find the ending index(which
+     * is exclusive) depending on max SMS length limit. Ending index will be
+     * searched by word boundaries, unless it would take away more than
+     * deviation limit of the text - in that case it will be searched by
+     * characters (splitting the word).
+     *
+     * @param msgText full message text
+     * @param start the beginning index, inclusive
+     * @param limit max SMS length limit
+     * @param dev deviation limit, must be in interval from 0 to 1
+     * @return the ending index, exclusive
+     */
+    private int findIndexOfCut(String msgText, int start, int limit, double dev) {
+        //initial index of cut
+        //meanwhile, cut message is in interval <i, i+limit)
+        int indexOfCut = start + limit;
+
+        if (indexOfCut >= msgText.length()) {
+            //last part of the text, equal or shorter than the limit
+            //return index of cut, cut message is in interval <i, msgText.length)
+            return msgText.length();
+        }
+
+        //when the index of cut is in the middle of continuous text,
+        //try to find white space
+        if (!(Character.isWhitespace(msgText.charAt(indexOfCut)))
+                && !(Character.isWhitespace(msgText.charAt(indexOfCut - 1)))) {
+
+            //searching separator between words with dev deviation from intial index of cut
+            int minIndexOfCut = start + ((int) (limit * (1 - dev)));
+            while ((!Character.isWhitespace(msgText.charAt(indexOfCut)))
+                    && (indexOfCut > minIndexOfCut)) {
+
+                indexOfCut--;
+            }
+
+            if (indexOfCut <= minIndexOfCut) {
+                //separator not found in the specified deviation 
+                //return index of cut, cut message is in interval <i, i+limit)
+                return (start + limit);
+            }
+
+            //inclusion gap into (left) message
+            indexOfCut++;
+        }
+
+        //return index of cut, cut message is in interval <i, indexOfCut)
+        return indexOfCut;
     }
     
     /** get length of signature needed to be subtracted from message length */
